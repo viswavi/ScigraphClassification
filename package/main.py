@@ -3,6 +3,7 @@ import os
 
 from datasets.dataset import Dataset
 from experiments.run_brf_experiments import run_brf_experiments
+from experiments.run_mlp_experiments import run_mlp_experiments
 
 
 @click.command()
@@ -15,6 +16,8 @@ def main(data_directory, dataset_name, dataset_style, model):
     test_dataset = Dataset(data_directory, dataset_name, dataset_style, train=False)
     if model == 'brf':
         run_brf_experiments(train_dataset, test_dataset)
+    if model == 'mlp':
+        run_mlp_experiments(train_dataset, test_dataset)
 
 
 if __name__ == "__main__":
