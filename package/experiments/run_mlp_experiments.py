@@ -3,7 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import classification_report
+
 
 
 HIDDEN_DIMS = [50, 100, 200]
@@ -11,7 +13,7 @@ NUM_LAYERS = [3, 6]
 LEARNING_RATES = [1e-4, 1e-3]
 NUM_EPOCHS = 5
 
-DEVICE = 'cuda'
+DEVICE = 'cpu'
 
 def to_cls(y):
     return np.argmax(y, axis=1)
@@ -54,6 +56,7 @@ def run_mlp_experiments(train_dataset, test_dataset):
     for hidden_dim in HIDDEN_DIMS:
         for lr in LEARNING_RATES:
             for num_layers in NUM_LAYERS:
+                print(f"hidden_dim = {hidden_dim}, learning_rate = {lr}, num_layers = {num_layers}")
                 run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test)
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test):
@@ -80,6 +83,6 @@ def evaluate_model(model, X, y):
     y_pred = torch.argmax(model(X), dim=1)
     y_pred = y_pred.cpu().numpy()
 
-    print(f1_score(y, y_pred, average=None))
+    print(accuracy_score(y, y_pred))
 
 

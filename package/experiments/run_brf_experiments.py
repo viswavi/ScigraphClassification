@@ -1,4 +1,5 @@
 from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import f1_score, accuracy_score
 import numpy as np
 
 
@@ -14,6 +15,7 @@ def run_brf_experiments(train_dataset, test_dataset):
     for n_estimators in NUM_ESTIMATORS:
         for lr in LEARNING_RATES:
             for depth in MAX_DEPTH:
+                print(f"num_estimators = {n_estimators}, learning_rate = {lr}, max_depth = {depth}")
                 run_single_experiment(n_estimators, lr, depth, train_dataset, test_dataset)
 
 def run_single_experiment(n_estimators, lr, depth, train_dataset, test_dataset):
