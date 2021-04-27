@@ -1,5 +1,5 @@
 '''
-python load_planetoid_data.py --planetoid-directory /projects/ogma1/vijayv/planetoid/data3 \
+python load_planetoid_data.py --planetoid-directory /Users/vijay/Documents/classes/10-708/ScigraphClassification/data \
                               --dataset-name citeseer
 
 '''
@@ -10,18 +10,19 @@ import numpy as np
 import os
 import pandas as pd
 import pickle
+import sys
+
+sys.path.append(os.getcwd() + '/..')
 
 from datasets.dataset import load_planetoid_data
 
-from ScigraphIE.join_scirex_and_s2orc import get_semantic_scholar_metadata
-
 
 def construct_in_test_graph(graph, tx, ty):
-    test_indices = tx['indices']
+    test_indices = tx.indices
     set_test_indices = set(test_indices)
     graph_cited_set = set([v for valset in graph.values() for v in valset] + [int(k) for k in graph.keys()])
     num_test_indices = [t for t in test_indices if t in graph_cited_set]
-    test_keys = [str(t) for t in test_indices if str(t) in graph]
+    test_keys = [t for t in test_indices if t in graph]
     all_graph = {t: graph[t] for t in test_keys}
     test_graph = {t: [v for v in graph[t] if v in test_indices] for t in test_keys}
 
@@ -39,8 +40,8 @@ def main():
     args = parser.parse_args()
     planetoid_data = load_planetoid_data(args.planetoid_directory, args.dataset_name, args.dataset_style)
     graph_key = [k for k in planetoid_data if "graph" in k][0]
-    test_x_key = [k for k in planetoid_data if ".tx." in k][0]
-    test_y_key = [k for k in planetoid_data if ".ty." in k][0]
+    test_x_key = [k for k in planetoid_data if "tx" in k][0]
+    test_y_key = [k for k in planetoid_data if "ty" in k][0]
     avg_all_degree, avg_in_test_degree = construct_in_test_graph(planetoid_data[graph_key], planetoid_data[test_x_key], planetoid_data[test_y_key])
     print(f"Avg Test Degree: {avg_all_degree}")
     print(f"Avg Test In-Test Degree: {avg_in_test_degree}")

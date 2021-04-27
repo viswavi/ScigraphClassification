@@ -1,0 +1,3 @@
+[submodule "planetoid"]
+	path = planetoid
+	url = https://github.com/kimiyoung/planetoid.git
