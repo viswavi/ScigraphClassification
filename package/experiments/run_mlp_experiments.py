@@ -8,10 +8,13 @@ from sklearn.metrics import classification_report
 
 
 
-HIDDEN_DIMS = [50, 100, 200]
-NUM_LAYERS = [3, 6]
-LEARNING_RATES = [1e-4, 1e-3]
-NUM_EPOCHS = 5
+HIDDEN_DIMS = [50]
+NUM_LAYERS = [3]
+LEARNING_RATES = [1e-4]
+#HIDDEN_DIMS = [50, 100, 200]
+#NUM_LAYERS = [3, 6]
+#LEARNING_RATES = [1e-4, 1e-3]
+NUM_EPOCHS = 10
 
 DEVICE = 'cpu'
 
@@ -39,7 +42,7 @@ def make_multi_layer_perceptron(in_dim, out_dim, hidden_dim, num_layers):
 
     out_layer = nn.Linear(hidden_dim, out_dim)
     layers.append(out_layer)
-    layers.append(nn.Sigmoid())
+    layers.append(nn.Softmax())
 
     return nn.Sequential(*layers)
 
@@ -56,7 +59,7 @@ def run_mlp_experiments(train_dataset, test_dataset):
     for hidden_dim in HIDDEN_DIMS:
         for lr in LEARNING_RATES:
             for num_layers in NUM_LAYERS:
-                print(f"hidden_dim = {hidden_dim}, learning_rate = {lr}, num_layers = {num_layers}")
+                #print(f"hidden_dim = {hidden_dim}, learning_rate = {lr}, num_layers = {num_layers}")
                 run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test)
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test):
