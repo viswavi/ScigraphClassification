@@ -15,13 +15,16 @@ def run_brf_experiments(train_dataset, test_dataset):
     for n_estimators in NUM_ESTIMATORS:
         for lr in LEARNING_RATES:
             for depth in MAX_DEPTH:
-                print(f"num_estimators = {n_estimators}, learning_rate = {lr}, max_depth = {depth}")
+                #print(f"num_estimators = {n_estimators}, learning_rate = {lr}, max_depth = {depth}")
                 run_single_experiment(n_estimators, lr, depth, train_dataset, test_dataset)
 
 def run_single_experiment(n_estimators, lr, depth, train_dataset, test_dataset):
     clf = GradientBoostingClassifier(n_estimators=n_estimators, learning_rate=lr, max_depth=depth, random_state=0)
     X, y = train_dataset.x, train_dataset.y
+    #X_val, y_val = X[:20], y[:20]
+    #X, y = X[20:], y[20:]
     clf.fit(X, to_cls(y))
+    #print(clf.score(X_val, to_cls(y_val)))
     
     X, y = test_dataset.x, test_dataset.y
     print(clf.score(X, to_cls(y)))

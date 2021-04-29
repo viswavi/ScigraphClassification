@@ -16,14 +16,18 @@ def load_planetoid_data(directory, dataset_name, dataset_style):
     directory_files = os.listdir(directory)
     matching_files = [f for f in directory_files if dataset_name in f and dataset_style in f]
     datasets = {}
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'graph']
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'graph', 'csv']
     for f in matching_files:
         fullpath = os.path.join(directory, f)
         suffix = f.split('.')[-1]
         # suffix is either 'x', 'y', 'tx', 'ty', or 'graph'.
         if suffix not in names:
             continue
-        datasets[suffix] = cPickle.load(open(fullpath, 'rb'), encoding="latin1")
+        if suffix == 'csv':
+            test_indices = pd.read_csv(fullpath, header=None).to_numpy().squeeze(1)
+            datasets['index'] = test_indices
+        else:
+            datasets[suffix] = cPickle.load(open(fullpath, 'rb'), encoding="latin1")
 
     return datasets
 
@@ -38,7 +42,9 @@ class Dataset(data.Dataset):
         else:
             self.x = dataset['tx']
             self.y = dataset['ty']
+            self.test_indices = dataset['index']
         self.graph = dataset['graph']
+        self.all_x = dataset['allx']
 
     def __len__(self):
         return len(self.x)
