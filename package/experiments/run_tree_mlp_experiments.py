@@ -1,3 +1,4 @@
+from collections import defaultdict
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -5,7 +6,9 @@ import numpy as np
 
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
+from package.datasets.graph_loader import load_graph_from_dataset
 
+from package.experiments.run_graph_mlp_experiments import aggregate_features
 
 DEVICE = 'cpu'
 NUM_LAYERS = [2]
@@ -42,22 +45,44 @@ def make_multi_layer_perceptron(in_dim, out_dim, hidden_dim, num_layers):
 
     return nn.Sequential(*layers)
 
+def generate_reindexed_graph(graph, all_X, train_size, test_size, test_indices):
+    index_remapping = {}
+    for train_idx in range(train_size):
+        index_remapping[train_idx] = train_idx
+    for test_idx in range(test_size):
+        index_remapping[test_indices[test_idx]] = test_idx + train_size
 
-def aggregate_features(X, all_X, graph, indices=None):
-    new_X = []
-    for idx in range(len(X)):
-        feats = X[idx]
-        if indices is None:
-            graph_indices = [i for i in graph[idx] if i < len(all_X)]
-        else:
-            test_index = indices[idx]
-            graph_indices = [i for i in graph[test_index] if i < len(all_X)]
-        neighbor_feats = torch.sum(all_X[graph_indices], dim=0)
-        new_X.append(torch.cat((feats, neighbor_feats)))
-    return torch.stack(new_X)
+    reindexed_graph = {}
+    for node_idx, neighbor_idxs in graph.items():
+        if node_idx not in index_remapping:
+            # Don't add any nodes that are completely unlabeled (i.e. not in train or test sets)
+            # for now.
+            continue
+        remapped_node_idx  = index_remapping[node_idx]
+        reindexed_graph[remapped_node_idx] = []
 
+        for neighbor_idx in neighbor_idxs:
+            if neighbor_idx not in index_remapping:
+                # Ignore unlabeled data points.
+                # TODO: support training on unlabeled points.
+                continue
+            reindexed_graph[remapped_node_idx].append(index_remapping[neighbor_idx])
+    return reindexed_graph
 
-def run_graph_mlp_experiments(train_dataset, test_dataset):
+# CRFs are undirected graphical models, so the underlying citation graph must be made undirected.
+def make_graph_undirected(graph):
+    undirected_graph = defaultdict(set)
+    for s in graph:
+        if graph[s] == []:
+            undirected_graph[s] = set()
+        for t in graph[s]:
+            undirected_graph[s].add(t)
+            undirected_graph[t].add(s)
+    for k in undirected_graph:
+        undirected_graph[k] = list(undirected_graph[k])
+    return undirected_graph
+
+def run_tree_mlp_experiments(train_dataset, test_dataset):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
     
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
@@ -74,11 +99,22 @@ def run_graph_mlp_experiments(train_dataset, test_dataset):
     X_test = aggregate_features(X_test, all_X, graph, indices=test_indices)
     y_test = torch.tensor(to_cls(y_test), device='cpu', dtype=torch.int64)
 
+    aggregated_X = torch.cat([X_train, X_test])
+    aggregated_y = torch.cat([y_train, y_test])
+    num_train = len(X_train)
+    num_test = len(X_test)
+
+    reindexed_graph = generate_reindexed_graph(graph, all_X, num_train, num_test, test_indices)
+    undirected_graph = make_graph_undirected(reindexed_graph)
+    all_edges = [v for vv in undirected_graph.values() for v in vv]
+
+
+    train_loader, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, undirected_graph)
+
+
     for hidden_dim in HIDDEN_DIMS:
         for lr in LEARNING_RATES:
             for num_layers in NUM_LAYERS:
-                #print(f"hidden_dim = {hidden_dim}, learning_rate = {lr}, num_layers = {num_layers}")
-                #run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test, X_val, y_val)
                 run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train, X_test, y_test)
 
 
@@ -87,15 +123,20 @@ def run_single_experiment(hidden_dim, lr, num_layers, num_cls, X_train, y_train,
     evaluate_model(model, X_test, y_test)
 
 
-def train_model(hidden_dim, lr, num_layers, num_cls, X, y, X_val=None, y_val=None):
+def train_model(hidden_dim, lr, num_layers, num_cls, X, y, X_val=None, y_val=None, use_crf = True):
     _, num_features = X.shape
-    model = MLP(in_dim=num_features, hidden_dim=hidden_dim, out_dim=num_cls, num_layers=num_layers)
+    if not use_crf:
+        model = MLP(in_dim=num_features, hidden_dim=hidden_dim, out_dim=num_cls, num_layers=num_layers)
+    else:
+        raise NotImplementedError
     model.to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
 
     for _ in range(NUM_EPOCHS):
+
         optimizer.zero_grad()
+
         y_pred = model(X)
         loss = criterion(y_pred, y)
         loss.backward()
@@ -108,10 +149,9 @@ def train_model(hidden_dim, lr, num_layers, num_cls, X, y, X_val=None, y_val=Non
         print(val_score)
     return model
 
+
 def evaluate_model(model, X, y):
     y_pred = torch.argmax(model(X), dim=1)
     y_pred = y_pred.cpu().numpy()
 
     print(f"Test accuracy {accuracy_score(y, y_pred)}")
-
-
