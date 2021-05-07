@@ -42,7 +42,10 @@ class TreeNLLLoss(nn.Module):
             if node.parent is None: 
                 losses.append(torch.clone(node.unary_potential[0, node.true_label]))
                 loss = loss + node.unary_potential[0, node.true_label]
-        losses = torch.cat(losses, dim=0)
+        if len(losses) == 1:
+            losses = losses[0]
+        else:
+            losses = torch.cat(losses, dim=0)
         return -1*(loss-partition_func)
 
 
@@ -69,7 +72,8 @@ class TreeCRF(nn.Module):
                 traversal_list.append(node)
                 features.append(node.features)
             return traversal_list, features
-    def predict(self, norm_beliefs, labels, leaf_idxs):
+
+    def predict(self, norm_beliefs, labels, node_idxs):
         full = torch.cat(norm_beliefs, dim=0)
 
         preds = torch.argmax(full, axis = 1)
@@ -77,11 +81,24 @@ class TreeCRF(nn.Module):
         tree_acc = mask.sum()/len(mask)
         leaf_mask = mask[leaf_idxs]
         leaf_acc = leaf_mask.sum()/len(leaf_idxs)
-        return tree_acc, leaf_acc
+        preds_dict = dict(zip(node_idxs, preds))
+        return tree_acc, leaf_acc, preds_dict
 
     def forward(self, tree):
+        if len(tree.children) == 0:
+            single_features = torch.unsqueeze(tree.features, dim=0)
+            tree.hidden = torch.clone(self.mlp(single_features))
+            # Case where node has no neighbors.
+            unary_pot = torch.clone(self.build_unary_potentials(tree.hidden))
+            tree.unary_potential = unary_pot
+            return [tree]
+
         traversal_list, features = self.build_traversal_and_get_features(tree, [], [])
-        hiddens = self.mlp(features)
+        features_tensor = torch.stack(features)
+        try:
+            hiddens = self.mlp(features_tensor)
+        except:
+            breakpoint()
         
         for node, hidden in zip(traversal_list, hiddens):
             children = node.children
@@ -92,7 +109,7 @@ class TreeCRF(nn.Module):
             node.unary_potential = unary_pot
             
             for child in children:
-                assert child.hidden is not None
+                assert child.hidden is not None, breakpoint()
                 # parent_features = node.features[:self.hidden]
                 # parent_neighbors = node.features[self.hidden:]
                 # child_features = child.features[:self.hidden]
@@ -111,7 +128,7 @@ class TreeCRF(nn.Module):
     def belief_propagation(self, traversal_list):
         # ...implement belief propagation and return the beliefs for every node...
         norm_beliefs = []
-        leaf_idxs = []
+        node_idxs = []
 
         labels = []
         sanity_check = None
@@ -173,7 +190,6 @@ class TreeCRF(nn.Module):
                     child_belief_tmp = torch.sum(torch.cat([child.unary_potential, child.message_from_parent], dim=0), dim=0)
                     assert torch.isclose(torch.logsumexp(child_belief_tmp, 0), sanity_check)
                     child.belief = torch.clone(child_belief_tmp)
-                    leaf_idxs.append(len(norm_beliefs))
                     norm_beliefs.append((child_belief_tmp-sanity_check).view(1, child_belief_tmp.shape[0]))
                     labels.append(child.true_label)
                     
@@ -186,8 +202,8 @@ class TreeCRF(nn.Module):
                 sanity_check = torch.clone(partition_func)
             node.belief = torch.clone(belief_tmp)
 
-            
             norm_beliefs.append((belief_tmp-partition_func).view(1, belief_tmp.shape[0]))
             labels.append(node.true_label)
+            node_idxs.append(node.idx)
         
-        return norm_beliefs, labels, leaf_idxs, sanity_check
+        return norm_beliefs, labels, node_idxs, sanity_check

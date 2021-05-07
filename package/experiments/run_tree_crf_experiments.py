@@ -98,7 +98,7 @@ def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, tra
     evaluate_model(model, test_loader)
 
 
-def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls):
+def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=10):
     model = TreeCRF(input_dim=num_features, hidden_dim=hidden_dim, num_classes=num_cls, num_layers=num_layers)
     
     model.to(DEVICE)
@@ -116,16 +116,17 @@ def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls)
 
             optimizer.zero_grad()
             traversal_list = model(tree)
-            norm_beliefs, labels, leaf_idxs, partition_func = model.belief_propagation(traversal_list)
+            norm_beliefs, labels, node_idxs, partition_func = model.belief_propagation(traversal_list)
             loss = criterion(traversal_list, partition_func)
             ## what is labels ... ah, i had a node.true_label in the posTagger 
             ## probably need to change this
             # preds = model.predict(norm_beliefs, labels, leaf_idxs)
             losses.append(loss.item())
-            tree_accs.append(tree_acc)
-            leaf_accs.append(leaf_acc)
             loss.backward()
             optimizer.step()
+            if len(losses) == loss_interval:
+                print(f"Average loss from {loss_interval} points: {round(np.mean(losses), 5)}")
+                losses = []
 
     # if X_val is not None:
     #     y_pred = torch.argmax(model(X_val), dim=1)
@@ -142,11 +143,10 @@ def evaluate_model(model, test_loader):
     while not done:
         done, tree = test_loader.get_next_batch()
         root_labels.append(tree.true_label)
+        root_node_idx = tree.idx
         traversal_list = model(tree)
-        norm_beliefs, labels, leaf_idxs, partition_func = model.belief_propagation(traversal_list)
-
-
-    y_pred = torch.argmax(model(X), dim=1)
-    y_pred = y_pred.cpu().numpy()
+        norm_beliefs, labels, node_idxs, partition_func = model.belief_propagation(traversal_list)
+        _, _, preds_dict = model.predict(norm_beliefs, labels, node_idxs)
+        root_predictions = preds_dict[root_node_idx]
 
     print(f"Test accuracy {accuracy_score(y, y_pred)}")
