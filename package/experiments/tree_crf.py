@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+from .mlp import MLP, make_multi_layer_perceptron
 
 
 
@@ -12,298 +14,180 @@ def unary_potential_product(unary_potentials):
             unary_sum = unary_sum + p
     return unary_sum
 
-def belief_propagation(root, leaves, node_map, unary_potentials, edge_potentials, agg="sum"):
-    beliefs = {}
-
-    # ...implement belief propagation and return the beliefs for every node...
-    # initialize messages with leaves' potentials
-    message_queue = []
-
-    root_idx = root.idx
-    starting_node_indices = [l.idx for l in leaves]
-    starting_node_indices.extend([k for k in unary_potentials if k not in starting_node_indices and k != root.idx])
-    for node_idx in starting_node_indices:
-        unary_potential = unary_potentials[node_idx]
-        # Initialize message queue with unary-factor-to-node messages for each factor.
-        starting_msg = Message(mtype = F2V, factor_name=node_idx, variable_name=node_idx, potential=unary_potential)
-        message_queue.append(starting_msg)
-
-    going_up = True
-    just_changed_directions = False
-    historical_messages = []
-    # Pass messages from leaves upwards. Do this with a bottom-up tree traversal,
-    # by expanding hidden representations for parents whose children have already been expanded.
-    while len(message_queue) > 0:
-        in_message = message_queue.pop(0)
-        if in_message.mtype == F2V:
-            # Received message is a factor-to-variable message.
-            in_msg_source_factor = in_message.factor_name
-            # The target variable from the incoming F2V message becomes the source variable of the
-            # outgoing V2F message.
-            in_msg_target_variable = in_message.variable_name
-            out_msg_source_variable = in_msg_target_variable
-
-            out_msg_target_factors = []
-            if going_up:
-                if out_msg_source_variable == root_idx:
-                    out_msg_target_factor = root_idx
-                    out_msg_target_factors = [root_idx]
-                else:
-                    parent = node_map[out_msg_source_variable].parent
-                    assert parent is not None
-                    out_msg_target_factor = (parent.idx, out_msg_source_variable)
-                    out_msg_target_factors = [out_msg_target_factor]
-                pass
-            else:
-                unary_target_factor = out_msg_source_variable
-                if unary_target_factor != root_idx:
-                    # We have already used the variable-to-factor message for the root node.
-                    # For all other nodes, let's add this to our queue of messages to populate.
-                    out_msg_target_factors.append(unary_target_factor)
-                for c in node_map[out_msg_source_variable].children:
-                    # Send a message to each downstream factor.
-                    out_msg_target_factor = (out_msg_source_variable, c.idx)
-                    out_msg_target_factors.append(out_msg_target_factor)
-
-            N_i = count_neighbors(node_map[out_msg_source_variable]) + 1
-            postpone_message = False
-            for out_msg_target_factor in out_msg_target_factors:
-                # Looking for all F2V variables ending with `out_msg_source_variable`, except the one coming from the target factor.
-                # N(i) := one factor for each neighbor of i, plus the unary factor at i
-                matching_factors = [m for m in [in_message] + message_queue + historical_messages if \
-                                        m.mtype == F2V  and m.variable_name == out_msg_source_variable  and m.factor_name != out_msg_target_factor]
-                if len(matching_factors) != N_i-1:
-                    # In order to propagate to the target factor, we must already have access to messages from all other factors.
-                    # This should only ever happen during our upward propagation. Since this is a tree, during
-                    # downward propagation, we should already have all necessary messages other than `message` from
-                    # the upward pass. 
-                    assert going_up, breakpoint()
-                    postpone_message = True
-                    break
-                for m in matching_factors:
-                    if m in message_queue:
-                        message_queue.remove(m)
-                        # Since we've removed the message from the message queue, place it on the historical messages list
-                        # for future reference.
-                        historical_messages.append(m)
-
-                # Process factor, and create new message from `out_msg_source_variable` to `out_msg_target_factor`.
-                if going_up and out_msg_target_factor == root_idx:                    # Final message in the upward chain. It may not be necessary, but lets place it in the historical
-                    # messages store for consistency.
-                    final_up_msg = Message(mtype = V2F,
-                                                    factor_name=root_idx,
-                                                    variable_name=root_idx,
-                                                    potential=in_message.potential)
-                    historical_messages.append(final_up_msg)
-                    assert len(message_queue) == 0, breakpoint()
-                    going_up = False
-                    just_changed_directions = True
-                    root_down_msg = Message(mtype = F2V,
-                                                factor_name=root_idx,
-                                                variable_name=root_idx,
-                                                potential=unary_potentials[root_idx])
-                    message_queue.append(root_down_msg)
-
-                    # TODO(Vijay): replace the just_changed_directions with a simple `continue`
-                else:
-                    factor_potentials = [m.potential for m in matching_factors]
-                    product_of_potentials = unary_potential_product(factor_potentials)
-                    new_v2f = Message(mtype = V2F,
-                        factor_name=out_msg_target_factor,
-                        variable_name=out_msg_source_variable,
-                        potential=product_of_potentials)
-                    message_queue.append(new_v2f)
-
-            # Compute node belief if making downward pass, since at this point we should have access to all necessary factor-to-variable messages.
-            if going_up is False and not just_changed_directions:
-                all_matching_factors = [m for m in [in_message] + message_queue + historical_messages if \
-                    m.mtype == F2V  and m.variable_name == out_msg_source_variable]
-                assert len(all_matching_factors) == N_i, breakpoint()
-
-                factor_potentials = [m.potential for m in all_matching_factors]
-                variable_belief = unary_potential_product(factor_potentials)
-                beliefs[in_msg_target_variable] = variable_belief
-
-            # Since we've removed the message from the message queue, place it on the historical messages list
-            # for future reference.
-            historical_messages.append(in_message)
-
-            if just_changed_directions:
-                just_changed_directions = False
-
-            if postpone_message:
-                # Place this message at the end of the queue, for when we're ready to use it.
-                if in_message in historical_messages:
-                    historical_messages.remove(in_message)
-                message_queue.append(in_message)
-        else:
-            # Received message is a variable-to-factor message.
-            in_msg_source_variable = in_message.variable_name
-            # The target factor from the incoming V2F message becomes the source factor of the
-            # outgoing F2V message.
-            in_msg_target_factor = in_message.factor_name
-            out_msg_source_factor = in_msg_target_factor
-
-            historical_messages.append(in_message)
-            if not isinstance(in_msg_target_factor, tuple):
-                # Then this is a message from a node to a unary factor, which we only need to compute factor
-                # beliefs. Therefore, just throw this on the historical messages record and forget about it.
-                continue
-            
-            # Target factor consists of (parent, child)
-            if going_up:
-                # Message is being sent from child to factor with parent.
-                assert in_msg_source_variable == in_msg_target_factor[1]
-                out_msg_target_variable = in_msg_target_factor[0]
-            else:
-                # Message is being sent from parent to factor with child.
-                assert in_msg_source_variable == in_msg_target_factor[0]
-                out_msg_target_variable = in_msg_target_factor[1]
-            edge_potential = edge_potentials[in_msg_target_factor]            
-
-            factor_potential = edge_potential if going_up else edge_potential.T
-
-            if agg == "sum":
-                new_potential = torch.logsumexp(factor_potential + in_message.potential, dim=1)
-            elif agg == "max":
-                new_potential, _ = torch.max(factor_potential + in_message.potential, dim=1)
-            else:
-                raise ValueError("Algorithm must be sum-product or max-product.")
-
-            new_f2v = Message(mtype = F2V,
-                factor_name=out_msg_source_factor,
-                variable_name=out_msg_target_variable,
-                potential=new_potential)
-            message_queue.append(new_f2v)
-
-    assert len(message_queue) == 0
-    # 1 message from each unary factor to each node and vice-versa (total of 2 per node).
-    # 2 messages from each node to each neighbor via their pairwise factor, and vice-versa (total of 4 per edge).
-    # n nodes and n-1 edges -> 2*n + 4*(n-1) messages.
-    assert len(historical_messages) == 2*len(node_map) + 4*(len(node_map)-1), breakpoint()
-    assert len(beliefs) == len(node_map)
-    if agg == "sum":
-        # Check that all partition function values are the same, from any belief.
-        belief_sums = [torch.logsumexp(v, dim=0).item() for v in beliefs.values()]
-        for b in belief_sums:
-            assert np.isclose(b, belief_sums[0], rtol=1e-3)
-
-    return beliefs
-
+    
 class TreeNLLLoss(nn.Module):
     def __init__(self):
         super(TreeNLLLoss,self).__init__()
 
-    def forward(self, log_likelihood):
+    # def forward(self, log_likelihood):
+    #     # ...implement the forward function for negative log likelihood loss...
+    #     return -log_likelihood
+    def forward(self, traversal_list, partition_func):
         # ...implement the forward function for negative log likelihood loss...
-        return -log_likelihood
+        losses = []
+        loss = 0
+        for node in traversal_list:
+            true_parent = node.true_label
+            for child in node.children:
+                true_child = child.true_label
+                edge_pot = child.parent_edge_potential[0,len(tag_dict)*true_child+true_parent]
+                losses.append(torch.clone(edge_pot))
+                losses.append(torch.clone(child.unary_potential[0, true_child]))
+                loss = loss + edge_pot
+                loss = loss + child.unary_potential[0, true_child]
+                
+            # b = norm_beliefs[i]
+            # lbl = labels[i]
+            # loss = -1*b[lbl] + torch.logsumexp(b)
+            if node.parent is None: 
+                losses.append(torch.clone(node.unary_potential[0, node.true_label]))
+                loss = loss + node.unary_potential[0, node.true_label]
+        losses = torch.cat(losses, dim=0)
+        return -1*(loss-partition_func)
 
 
 class TreeCRF(nn.Module):
 
-    def __init__(self, hidden_dim, num_classes):
-        super(POSTagger,self).__init__()
+    def __init__(self, input_dim, hidden_dim, num_classes, num_layers = 2):
+        super(TreeCRF,self).__init__()
 
-        self.build_unary_potentials = nn.Linear(2*hidden_dim, num_classes)
-        self.build_edge_potentials = nn.Linear(3 * hidden_dim, num_classes * num_classes)
+        self.build_unary_potentials = nn.Linear(hidden_dim, num_classes)
+        self.build_edge_potentials = nn.Linear(2 * hidden_dim, num_classes * num_classes)
 
         self.criterion = TreeNLLLoss()
         self.num_classes = num_classes
+        self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
+        self.mlp = make_multi_layer_perceptron(in_dim=input_dim, out_dim=None, hidden_dim=hidden_dim, num_layers=num_layers, feature_extractor=True)
 
-    def forward(self, sentence, tree, tree_len):
-        # ...implement the forward function...
+    def build_traversal_and_get_features(self, node, traversal_list = [], features = []):
+        if len(node.children) > 0 and node not in traversal_list:
+            for child in node.children:
+                if len(child.children) > 0 and child not in traversal_list:
+                    traversal_list, features = self.build_traversal_and_get_features(child, traversal_list, features)
+            if node not in traversal_list:
+                traversal_list.append(node)
+                features.append(node.features)
+            return traversal_list, features
+    def predict(self, norm_beliefs, labels, leaf_idxs):
+        full = torch.cat(norm_beliefs, dim=0)
 
-        embeds = self.embedding(sentence)
-        hidden, _ = self.lstm(torch.unsqueeze(embeds, 1))
-        hidden = torch.squeeze(hidden, 1)
+        preds = torch.argmax(full, axis = 1)
+        mask = np.array([(p==a) for p,a in zip(preds, labels)]).astype(int)
+        tree_acc = mask.sum()/len(mask)
+        leaf_mask = mask[leaf_idxs]
+        leaf_acc = leaf_mask.sum()/len(leaf_idxs)
+        return tree_acc, leaf_acc
 
-        leaves, node_map = get_nodes(tree)
-        assert len(leaves) == len(hidden)
-
-        unary_potentials = {}
-        edge_potentials = {}
-        true_label_potential = None
-
-        search_queue = []
-        search_index_set = set()
-        for i, leaf in enumerate(leaves):
-            tag_probabilities = self.build_unary_potentials(hidden[i])
-            unary_potentials[leaf.idx] = (hidden[i], tag_probabilities)
-            if true_label_potential is None:
-                true_label_potential = tag_probabilities[leaf.true_label[0]].clone()
-            else:
-                true_label_potential = true_label_potential + tag_probabilities[leaf.true_label[0]]
-            if leaf.parent.idx not in search_index_set:
-                search_queue.append(leaf.parent)
-                search_index_set.add(leaf.parent.idx)
-            assert leaf.children == []
-
-        # In reverse, expand hidden representations for parents whose children have already
-        # been expanded.
-        while len(search_queue) > 0:
-            query_node = search_queue.pop(0)
-            search_index_set.remove(query_node.idx)
-            expandable = False
-            if len(query_node.children) == 1:
-                assert query_node.children[0].idx in unary_potentials
-                expandable = True
-            else:
-                assert len(query_node.children) == 2
-                expandable = True
-                for c in query_node.children:
-                    if c.idx not in unary_potentials:
-                        expandable = False
-                        break
-            if not expandable:
-                # Wait until we've expanded the other children of this node
-                search_queue.append(query_node)
-                search_index_set.add(query_node.idx)
-                continue
-
-            if len(query_node.children) == 1:
-                child_hidden, _, = unary_potentials[query_node.children[0].idx]
-                hidden_raw = torch.cat([child_hidden, child_hidden], dim=0)
-            elif len(query_node.children) == 2:
-                child_hidden_l, _, = unary_potentials[query_node.children[0].idx]
-                child_hidden_r, _, = unary_potentials[query_node.children[1].idx]
-                hidden_raw = torch.cat([child_hidden_l, child_hidden_r], dim=0)
-            else:
-                raise ValueError("Should be unreachable")
-
-            hidden = self.build_intermediate_hidden(hidden_raw)
-            unary_tag_probabilities = self.build_unary_potentials_intermediate_node(hidden_raw)
-            unary_potentials[query_node.idx] = (hidden, unary_tag_probabilities)
-            true_label_potential = true_label_potential + unary_tag_probabilities[query_node.true_label[0]]
-
-            for c in query_node.children:
-                child_hidden, _, = unary_potentials[c.idx]
-                edge_hidden = torch.cat([hidden, child_hidden], dim=0)
-                edge_tag_probabilities = self.build_edge_potentials(edge_hidden).view((self.num_tags, self.num_tags))
-                edge_potentials[(query_node.idx, c.idx)] = edge_tag_probabilities
-                true_label_potential = true_label_potential + edge_tag_probabilities[query_node.true_label[0]][c.true_label[0]]
-            
-            if query_node.parent is not None:
-                # Add each node for which we have not already calculated its unary potentials, which
-                # also means we haven't calculated any of its adjacent edge potentials.
-                if query_node.parent.idx not in unary_potentials and query_node.parent.idx not in search_index_set:
-                    search_queue.append(query_node.parent)
-                    search_index_set.add(query_node.parent.idx)
-
-
-        # No need to keep unary hidden states after passing up through tree.
-        unary_potentials = {k:tag_probs for k, (hidden, tag_probs) in unary_potentials.items()}
-        max_beliefs = belief_propagation(tree, leaves, node_map, unary_potentials, edge_potentials, agg="max")
-        sum_beliefs = belief_propagation(tree, leaves, node_map, unary_potentials, edge_potentials, agg="sum")
-
-        node_to_prediction = {}
-        for m, max_belief in max_beliefs.items():
-            node_to_prediction[m] = torch.argmax(max_belief)
+    def forward(self, tree):
+        traversal_list, features = self.build_traversal_and_get_features(tree, [], [])
+        hiddens = self.mlp(features)
         
-        some_belief = list(sum_beliefs.values())[0]
-        partition_function = torch.logsumexp(some_belief, dim=0)
-        assert true_label_potential < partition_function
+        for node, hidden in zip(traversal_list, hiddens):
+            children = node.children
+            
+            node.hidden = torch.clone(hidden)
 
-        # Assert that the best possible product of potentials across all variable assignments is lesser than
-        # the partition function, as another sanity check.
-        assert torch.max(max_belief) < partition_function
-        return node_to_prediction, true_label_potential - partition_function
+            unary_pot = torch.clone(self.build_unary_potentials(node.hidden))
+            node.unary_potential = unary_pot
+            
+            for child in children:
+                assert child.hidden is not None
+                # parent_features = node.features[:self.hidden]
+                # parent_neighbors = node.features[self.hidden:]
+                # child_features = child.features[:self.hidden]
+                # child_neighbors = child.features[self.hidden:]
+                # shared_neighbor_features = parent_neighbors + child_neighbors - parent_features - child_features
+
+                #edge_pot = torch.clone(self.build_edge_potentials(torch.cat([parent_features, child_features, shared_neighbor_features], dim=1)))
+                edge_pot = torch.clone(self.build_edge_potentials(torch.cat([node.hidden, child.hidden], dim=1)))
+                child.parent_edge_potential = edge_pot
+        return traversal_list 
+
+####################################################################
+## Belief propagation
+####################################################################
+
+    def belief_propagation(self, traversal_list):
+        # ...implement belief propagation and return the beliefs for every node...
+        norm_beliefs = []
+        leaf_idxs = []
+
+        labels = []
+        sanity_check = None
+        loss = 0
+        for node in traversal_list:
+            # do forward pass
+            for child in node.children:
+                child_pot = torch.clone(child.unary_potential)
+                inc_msgs = []
+                if len(child.children) > 0: 
+                    for cc in child.children:
+                        inc_msgs.append(torch.clone(cc.message_to_parent))
+                inc_msgs.append(child_pot)
+                tmp_ = torch.sum(torch.cat(inc_msgs, dim = 0), dim=0)
+                tmp_ = tmp_.view(1, tmp_.shape[0])
+                child.message_at = torch.clone(tmp_)
+                # in fwd, take transpose 
+                edge_pot = torch.clone(torch.transpose(child.parent_edge_potential.view(self.num_classes,self.num_classes), 0, 1))
+                tmp_ =torch.cat(edge_pot.shape[0]*[tmp_])
+                msg_to_parent = torch.logsumexp(edge_pot+tmp_, 1)
+                child.message_to_parent = torch.clone(msg_to_parent).view(1, msg_to_parent.shape[0])
+        
+        for node in traversal_list[-1::-1]:
+            # do backward pass (and compute beliefs??)
+            belief_tmp = [torch.clone(node.unary_potential)]
+            if node.parent is not None:
+                assert node.message_from_parent is not None
+                belief_tmp.append(torch.clone(node.message_from_parent))
+            
+            for i in range(len(node.children)): 
+                child = node.children[i]
+                assert child.message_to_parent is not None
+                belief_tmp.append(torch.clone(child.message_to_parent))
+                
+                msg_from_p = [torch.clone(node.unary_potential)]
+                if node.parent is not None:
+                    assert node.message_from_parent is not None
+                    msg_from_p.append(torch.clone(node.message_from_parent))
+                if len(node.children) > 1:
+                    
+                    child2 = node.children[i+1-2*i]
+                    assert child2.message_to_parent is not None
+                    msg_from_p.append(torch.clone(child2.message_to_parent))
+                # messages at parent 
+                tmp_ = torch.sum(torch.cat(msg_from_p, dim = 0), dim=0)
+                tmp_ = tmp_.view(1, tmp_.shape[0])
+                assert child.message_at is not None
+                msg_at_child = torch.repeat_interleave(torch.clone(child.message_at), repeats=tmp_.shape[1], dim=1)
+                edge_tmp = child.parent_edge_potential
+
+                #edge_belief = torch.sum(torch.cat([torch.cat(tmp_.shape[1]*[tmp_],dim=1), msg_at_child, edge_tmp], dim=0), dim=0)
+                
+                #print(torch.logsumexp(edge_belief, dim=0))
+                edge_pot = torch.clone(edge_tmp.view(len(tag_dict),len(tag_dict)))
+                tmp_ =torch.cat(edge_pot.shape[0]*[tmp_])
+                msg_from_parent = torch.logsumexp(edge_pot+tmp_, 1)
+                child.message_from_parent = torch.clone(msg_from_parent).view(1, msg_from_parent.shape[0])
+                if len(child.children) == 0:
+                    child_belief_tmp = torch.sum(torch.cat([child.unary_potential, child.message_from_parent], dim=0), dim=0)
+                    assert torch.isclose(torch.logsumexp(child_belief_tmp, 0), sanity_check)
+                    child.belief = torch.clone(child_belief_tmp)
+                    leaf_idxs.append(len(norm_beliefs))
+                    norm_beliefs.append((child_belief_tmp-sanity_check).view(1, child_belief_tmp.shape[0]))
+                    labels.append(child.true_label)
+                    
+            belief_tmp = torch.sum(torch.cat(belief_tmp, dim = 0), dim=0)
+            partition_func = torch.logsumexp(belief_tmp, dim=0)
+            #assert torch.isclose(torch.logsumexp(edge_belief, 0), partition_func)
+            if sanity_check is not None:
+                assert torch.isclose(partition_func, sanity_check)
+            else:
+                sanity_check = torch.clone(partition_func)
+            node.belief = torch.clone(belief_tmp)
+
+            
+            norm_beliefs.append((belief_tmp-partition_func).view(1, belief_tmp.shape[0]))
+            labels.append(node.true_label)
+        
+        return norm_beliefs, labels, leaf_idxs, sanity_check

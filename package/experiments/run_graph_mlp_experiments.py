@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+from .mlp import MLP, make_multi_layer_perceptron
+from package.experiments.utils import aggregate_features, to_cls
+
 
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
@@ -14,47 +17,6 @@ LEARNING_RATES = [0.03]
 NUM_EPOCHS = 10
 
 
-def to_cls(y):
-    return np.argmax(y, axis=1)
-
-
-class MLP(nn.Module):
-
-    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=3):
-        super(MLP, self).__init__()
-        self.model = make_multi_layer_perceptron(in_dim, out_dim, hidden_dim, num_layers)
-
-    def forward(self, features):
-        return self.model(features)
-
-def make_multi_layer_perceptron(in_dim, out_dim, hidden_dim, num_layers):
-    fc_1 = nn.Linear(in_dim, hidden_dim, bias=True)
-    layers = [fc_1, nn.ReLU()]
-
-    for _ in range(num_layers - 2):
-        fc = nn.Linear(hidden_dim, hidden_dim, bias=True)
-        layers.append(fc)
-        layers.append(nn.ReLU())
-
-    out_layer = nn.Linear(hidden_dim, out_dim)
-    layers.append(out_layer)
-    layers.append(nn.Softmax())
-
-    return nn.Sequential(*layers)
-
-
-def aggregate_features(X, all_X, graph, indices=None):
-    new_X = []
-    for idx in range(len(X)):
-        feats = X[idx]
-        if indices is None:
-            graph_indices = [i for i in graph[idx] if i < len(all_X)]
-        else:
-            test_index = indices[idx]
-            graph_indices = [i for i in graph[test_index] if i < len(all_X)]
-        neighbor_feats = torch.sum(all_X[graph_indices], dim=0)
-        new_X.append(torch.cat((feats, neighbor_feats)))
-    return torch.stack(new_X)
 
 
 def run_graph_mlp_experiments(train_dataset, test_dataset):

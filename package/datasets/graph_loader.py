@@ -3,10 +3,14 @@ from package.datasets.dataset import Dataset
 class Node():
     def __init__(self, idx, features, true_label, parent=None, children=[]):
         self.features = features
+
         self.true_label = true_label
         self.parent = parent
         self.children = children
         self.idx=idx
+        self.unary_potential = None
+        self.parent_edge_potential = None
+        self.hidden= None
 
 
 def construct_graph_neighborhoods(aggregated_X, aggregated_y, candidate_nodes, undirected_graph, max_neighborhood_size=10, inclusive=True):
@@ -62,13 +66,10 @@ class GraphLoader():
 
 
     def get_next_batch(self):
-        current_batch = (torch.LongTensor(np.array(self.sentences[self.ptr])),
-                         self.tree_size[self.ptr],
-                         self.my_trees[self.ptr],
-                         self.trees[self.ptr],
-                         self.tree_lens[self.ptr])
+        current_batch = self.trees[self.ptr]
         self.ptr += 1
-        return self.ptr == self.len, current_batch
+        done = self.ptr == len(self.trees)
+        return done, current_batch
 
 
 
