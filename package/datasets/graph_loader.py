@@ -26,7 +26,7 @@ def construct_graph_neighborhoods(aggregated_X, aggregated_y, candidate_nodes, u
         nodes = {c: root_node}
         search_queue = [(c, trg) for trg in undirected_graph[c]]
         # Keep a list of seen nodes to keep the graph acylic.
-        seen_nodes = set()
+        seen_nodes = set([c])
         
         while len(search_queue) > 0 and len(nodes) <= max_neighborhood_size:
             [parent, search_node] = search_queue.pop(0)
@@ -58,7 +58,7 @@ class GraphLoader():
     def __init__(self, aggregated_X, aggregated_y, candidate_nodes, undirected_graph, max_neighborhood_size=10, inclusive=True):
         self.trees = construct_graph_neighborhoods(aggregated_X, aggregated_y, candidate_nodes, undirected_graph,\
             max_neighborhood_size=max_neighborhood_size, inclusive=inclusive)
-        
+
         self.ptr = 0
 
     def reset(self):
@@ -67,8 +67,11 @@ class GraphLoader():
 
     def get_next_batch(self):
         current_batch = self.trees[self.ptr]
+
+        # When you've returned the last tree, return done = True
+        done = (self.ptr == len(self.trees) - 1)
+
         self.ptr += 1
-        done = self.ptr == len(self.trees)
         return done, current_batch
 
 
