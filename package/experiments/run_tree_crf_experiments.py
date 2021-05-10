@@ -1,4 +1,5 @@
 from collections import defaultdict
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -15,11 +16,12 @@ from collections import Counter, defaultdict
 
 DEVICE = 'cpu'
 NUM_LAYERS = [2]
-HIDDEN_DIMS = [100]
-LEARNING_RATES = [0.03]
+HIDDEN_DIMS = [200, 300, 500]
+LEARNING_RATES = [0.03, 0.05, 0.1]
 NUM_EPOCHS = 10
-TRAIN_SIZES = [140]
-#TRAIN_SIZES = [140, 380, 570]
+TRAIN_SIZES = [170]
+#TRAIN_SIZES = [170, 400, 600]
+VALIDATION_SAMPLES = 30
 
 
 def generate_reindexed_graph(graph, all_X, train_size, test_size, test_indices):
@@ -87,14 +89,16 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     undirected_graph = make_graph_undirected(reindexed_graph)
     all_edges = [v for vv in undirected_graph.values() for v in vv]    
 
-    for train_size in TRAIN_SIZES:
-        for hidden_dim in HIDDEN_DIMS:
-            for lr in LEARNING_RATES:
-                for num_layers in NUM_LAYERS:
-                    test_size = total_data_size - train_size
-                    print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}")
-                    train_loader, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, undirected_graph)
-                    run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble)
+    print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")
+    for ensembling in [False, True]:
+        for train_size in TRAIN_SIZES:
+            for hidden_dim in HIDDEN_DIMS:
+                for lr in LEARNING_RATES:
+                    for num_layers in NUM_LAYERS:
+                        test_size = total_data_size - train_size
+                        print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
+                        train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, VALIDATION_SAMPLES, undirected_graph)
+                        run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
 
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
@@ -112,7 +116,7 @@ def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls,
     tree_accs = []
     leaf_accs = []
 
-    for _ in range(NUM_EPOCHS):
+    for _ in tqdm(range(NUM_EPOCHS)):
         train_loader.reset()
         # step thru batches...
         done = False
