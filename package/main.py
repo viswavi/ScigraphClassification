@@ -13,7 +13,8 @@ from experiments.run_tree_crf_experiments import run_tree_crf_experiments
 @click.option('--dataset-name', type=click.Choice(['citeseer', 'pubmed', 'cora'], case_sensitive=False), required=True)
 @click.option('--dataset-style', type=click.Choice(['ind', 'trans'], case_sensitive=False), required=True)
 @click.option('--model', type=click.Choice(['brf', 'mlp', 'g-mlp', 't-crf'], case_sensitive=False), required=True)
-def main(data_directory, dataset_name, dataset_style, model):
+@click.option('--ensemble', is_flag=True)
+def main(data_directory, dataset_name, dataset_style, model, ensemble):
     train_dataset = Dataset(data_directory, dataset_name, dataset_style, train=True)
     test_dataset = Dataset(data_directory, dataset_name, dataset_style, train=False)
     if model == 'brf':
@@ -23,7 +24,7 @@ def main(data_directory, dataset_name, dataset_style, model):
     if model == 'g-mlp':
         run_graph_mlp_experiments(train_dataset, test_dataset)
     if model == 't-crf':
-        run_tree_crf_experiments(train_dataset, test_dataset)
+        run_tree_crf_experiments(train_dataset, test_dataset, ensemble)
 
 
 if __name__ == "__main__":
