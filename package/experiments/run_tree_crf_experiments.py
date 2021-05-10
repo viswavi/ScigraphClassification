@@ -1,9 +1,11 @@
 from collections import defaultdict
+import json
+import numpy as np
+import time
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
@@ -15,12 +17,15 @@ from collections import Counter, defaultdict
 
 
 DEVICE = 'cpu'
-NUM_LAYERS = [2]
+# ENSEMBLING = [False, True]
+ENSEMBLING = [False]
+NUM_LAYERS = [1, 2, 3]
 HIDDEN_DIMS = [200, 300, 500]
-LEARNING_RATES = [0.03, 0.05, 0.1]
+# LEARNING_RATES = [0.03, 0.05, 0.1]
+LEARNING_RATES = [0.03]
+TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
+
 NUM_EPOCHS = 10
-TRAIN_SIZES = [170]
-#TRAIN_SIZES = [170, 400, 600]
 VALIDATION_SAMPLES = 30
 
 
@@ -89,8 +94,10 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     undirected_graph = make_graph_undirected(reindexed_graph)
     all_edges = [v for vv in undirected_graph.values() for v in vv]    
 
+    parameter_scores = {}
+
     print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")
-    for ensembling in [False, True]:
+    for ensembling in ENSEMBLING:
         for train_size in TRAIN_SIZES:
             for hidden_dim in HIDDEN_DIMS:
                 for lr in LEARNING_RATES:
@@ -98,12 +105,45 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
                         test_size = total_data_size - train_size
                         print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
                         train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, VALIDATION_SAMPLES, undirected_graph)
-                        run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                        validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                        parameter_key = {
+                                            "ensembling": ensembling,
+                                            "train_size": train_size,
+                                            "hidden_dim": hidden_dim,
+                                            "lr"        : lr,
+                                            "num_layers": num_layers
+                                        }
+                        parameter_scores[str(parameter_key)] = validation_accuracy
+
+    print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
+    best_parameter = max(parameter_scores, key=parameter_scores.get)
+    best_parameter = eval(best_parameter)
+    print(f"Best parameter combination: {best_parameter}")
+    # Convert string dictionary back to dictinoary
+
+    final_train_size = best_parameter["train_size"]
+    final_test_size = total_data_size - final_train_size
+
+    # Generate test loader without holding out a validation set, this time.
+    train_loader, _, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, final_train_size, final_test_size, 0, undirected_graph)
+    test_accuracy = run_single_experiment(best_parameter["hidden_dim"],
+                                          best_parameter["lr"],
+                                          best_parameter["num_layers"],
+                                          num_features,
+                                          num_cls,
+                                          train_loader,
+                                          test_loader,
+                                          best_parameter["ensembling"])
+    print(f"Final Test Accuracy (on test set of size {final_test_size}): {test_accuracy}.")
 
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
+    start_time = time.perf_counter()
     model = train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls)
-    evaluate_model(model, test_loader, ensemble)
+    test_accuracy = evaluate_model(model, test_loader, ensemble)
+    end_time = time.perf_counter()
+    print(f"Single model took {round(end_time - start_time)} seconds to train.")
+    return test_accuracy
 
 
 def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):
@@ -181,5 +221,7 @@ def evaluate_model(model, test_loader, ensemble=False):
             all_labels = all_predictions[node_idx]
             top_label = vote_pooling(all_labels)
             node_predictions.append(top_label)
-    print(f"Test accuracy {accuracy_score(node_labels, node_predictions)}")
+    test_accuracy = accuracy_score(node_labels, node_predictions)
+    print(f"Test accuracy {test_accuracy}")
     print(f"Average neighborhood size in training: {round(np.mean(neighborhood_sizes), 3)}")
+    return test_accuracy

@@ -85,22 +85,23 @@ def aggregate_nodes_from_tree(tree):
 def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num_validation, undirected_graph, device='cpu', inclusive=True):
     train_node_ids = list(range(num_train))
     test_node_ids = [i + num_train for i in range(num_test)]
-    train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, inclusive=inclusive)
 
     # Construct the validation set from the training set, by holding out entire graph neighborhoods.
-    validation_node_ids = []
-    for t in train_loader.trees:
-        for node_idx in aggregate_nodes_from_tree(t):
-            if node_idx not in validation_node_ids:
-                validation_node_ids.append(node_idx)
-        if len(validation_node_ids) >= num_validation:
-            break
-    validation_node_ids = validation_node_ids[:num_validation]
-
-    train_node_ids = list(set(train_node_ids) - set(validation_node_ids))
-    print(f"train_node_ids: {train_node_ids}")
+    if num_validation == 0:
+        val_loader = None
+    else:
+        train_val_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, inclusive=inclusive)
+        validation_node_ids = []
+        for t in train_val_loader.trees:
+            for node_idx in aggregate_nodes_from_tree(t):
+                if node_idx not in validation_node_ids:
+                    validation_node_ids.append(node_idx)
+            if len(validation_node_ids) >= num_validation:
+                break
+        validation_node_ids = validation_node_ids[:num_validation]
+        val_loader = GraphLoader(aggregated_X, aggregated_y, validation_node_ids, undirected_graph, inclusive=inclusive)
+        train_node_ids = list(set(train_node_ids) - set(validation_node_ids))
 
     train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, inclusive=inclusive)
-    val_loader = GraphLoader(aggregated_X, aggregated_y, validation_node_ids, undirected_graph, inclusive=inclusive)
     test_loader = GraphLoader(aggregated_X, aggregated_y, test_node_ids, undirected_graph, inclusive=inclusive)
     return train_loader, val_loader, test_loader
