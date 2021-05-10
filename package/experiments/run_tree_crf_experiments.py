@@ -10,6 +10,7 @@ from package.datasets.graph_loader import load_graph_from_dataset
 
 from package.experiments.utils import to_cls, aggregate_features
 from .tree_crf import TreeCRF, TreeNLLLoss
+from collections import Counter, defaultdict
 
 
 DEVICE = 'cpu'
@@ -56,7 +57,7 @@ def make_graph_undirected(graph):
         undirected_graph[k] = list(undirected_graph[k])
     return undirected_graph
 
-def run_tree_crf_experiments(train_dataset, test_dataset):
+def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
     
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
@@ -90,25 +91,26 @@ def run_tree_crf_experiments(train_dataset, test_dataset):
     for hidden_dim in HIDDEN_DIMS:
         for lr in LEARNING_RATES:
             for num_layers in NUM_LAYERS:
-                run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader)
+                run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble)
 
 
-def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader):
+def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
     model = train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls)
-    evaluate_model(model, test_loader)
+    evaluate_model(model, test_loader, ensemble)
 
 
-def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=10):
+def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):
     model = TreeCRF(input_dim=num_features, hidden_dim=hidden_dim, num_classes=num_cls, num_layers=num_layers)
     
     model.to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = TreeNLLLoss()
+    criterion = model.criterion
     losses = []
     tree_accs = []
     leaf_accs = []
 
     for _ in range(NUM_EPOCHS):
+        train_loader.reset()
         # step thru batches...
         done = False
         while not done:
@@ -135,18 +137,43 @@ def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls,
     #     print(val_score)
     return model
 
+def vote_pooling(labels):
+    label_count = Counter(labels)
+    [(most_common_label, _)] = label_count.most_common(1)
+    return most_common_label
 
-def evaluate_model(model, test_loader):
+
+def evaluate_model(model, test_loader, ensemble=False):
     done = False
-    root_labels = []
-    root_predictions = []
+    node_labels = []
+    node_predictions = []
+
+    # For voting over all trees with a given node, if ensemble is True.
+    all_predictions = defaultdict(list)
+    test_node_indices = []
+
+    neighborhood_sizes = []
+
     while not done:
         done, tree = test_loader.get_next_batch()
-        root_labels.append(tree.true_label)
+        node_labels.append(tree.true_label)
         root_node_idx = tree.idx
         traversal_list = model(tree)
         norm_beliefs, labels, node_idxs, partition_func = model.belief_propagation(traversal_list)
-        _, _, preds_dict = model.predict(norm_beliefs, labels, node_idxs)
-        root_predictions = preds_dict[root_node_idx]
+        preds_dict = model.predict(norm_beliefs, labels, node_idxs)
+        neighborhood_sizes.append(len(preds_dict))
 
-    print(f"Test accuracy {accuracy_score(y, y_pred)}")
+        if ensemble:
+            for node_idx, node_pred in preds_dict.items():
+                all_predictions[node_idx].append(node_pred)
+        else:
+            node_predictions.append(preds_dict[root_node_idx])
+
+        test_node_indices.append(root_node_idx)
+    if ensemble:
+        for node_idx in test_node_indices:
+            all_labels = all_predictions[node_idx]
+            top_label = vote_pooling(all_labels)
+            node_predictions.append(top_label)
+    print(f"Test accuracy {accuracy_score(node_labels, node_predictions)}")
+    print(f"Average neighborhood size in training: {round(np.mean(neighborhood_sizes), 3)}")
