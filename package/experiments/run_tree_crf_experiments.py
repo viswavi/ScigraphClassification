@@ -11,14 +11,14 @@ from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
 from package.datasets.graph_loader import load_graph_from_dataset
 
-from package.experiments.utils import to_cls, aggregate_features
+from package.experiments.utils import to_cls, aggregate_features, consolidate_data
 from .tree_crf import TreeCRF, TreeNLLLoss
 from collections import Counter, defaultdict
 
 
 DEVICE = 'cpu'
 # ENSEMBLING = [False, True]
-ENSEMBLING = [False]
+ENSEMBLING = [True]
 NUM_LAYERS = [1, 2, 3]
 HIDDEN_DIMS = [200, 300, 500]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
@@ -28,30 +28,6 @@ TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
 NUM_EPOCHS = 10
 VALIDATION_SAMPLES = 30
 
-
-def generate_reindexed_graph(graph, all_X, train_size, test_size, test_indices):
-    index_remapping = {}
-    for train_idx in range(train_size):
-        index_remapping[train_idx] = train_idx
-    for test_idx in range(test_size):
-        index_remapping[test_indices[test_idx]] = test_idx + train_size
-
-    reindexed_graph = {}
-    for node_idx, neighbor_idxs in graph.items():
-        if node_idx not in index_remapping:
-            # Don't add any nodes that are completely unlabeled (i.e. not in train or test sets)
-            # for now.
-            continue
-        remapped_node_idx  = index_remapping[node_idx]
-        reindexed_graph[remapped_node_idx] = []
-
-        for neighbor_idx in neighbor_idxs:
-            if neighbor_idx not in index_remapping:
-                # Ignore unlabeled data points.
-                # TODO: support training on unlabeled points.
-                continue
-            reindexed_graph[remapped_node_idx].append(index_remapping[neighbor_idx])
-    return reindexed_graph
 
 # CRFs are undirected graphical models, so the underlying citation graph must be made undirected.
 def make_graph_undirected(graph):
@@ -68,7 +44,7 @@ def make_graph_undirected(graph):
 
 def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
-    
+
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
     all_X = torch.tensor(all_X.toarray(), device=DEVICE)
     X_train = aggregate_features(X_train, all_X, graph)
@@ -84,16 +60,11 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     y_test = torch.tensor(to_cls(y_test), device='cpu', dtype=torch.int64)
     _, num_features = X_train.shape
 
-    aggregated_X = torch.cat([X_train, X_test])
-    aggregated_y = torch.cat([y_train, y_test])
-    num_train = len(X_train)
-    num_test = len(X_test)
-    total_data_size = num_train + num_test
-
-    reindexed_graph = generate_reindexed_graph(graph, all_X, num_train, num_test, test_indices)
+    aggregated_X, aggregated_y, reindexed_graph = consolidate_data(X_train, y_train, X_test, y_test, test_indices, graph)
     undirected_graph = make_graph_undirected(reindexed_graph)
-    all_edges = [v for vv in undirected_graph.values() for v in vv]    
 
+    all_edges = [v for vv in undirected_graph.values() for v in vv]
+    total_data_size = len(X_train) + len(X_test)
     parameter_scores = {}
 
     print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")

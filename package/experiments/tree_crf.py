@@ -107,10 +107,7 @@ class TreeCRF(nn.Module):
             features_list.append(features[node_idx])
 
         features_tensor = torch.stack(features_list)
-        try:
-            hiddens = self.mlp(features_tensor)
-        except:
-            breakpoint()
+        hiddens = self.mlp(features_tensor)
         
         for node in traversal_list:
             children = node.children
@@ -191,10 +188,7 @@ class TreeCRF(nn.Module):
                         msg_from_p.append(torch.clone(child2.message_to_parent))
                 # messages at parent 
                 tmp_ = torch.sum(torch.cat(msg_from_p, dim = 0), dim=0)
-                try:
-                    tmp_ = tmp_.view(1, tmp_.shape[0])
-                except:
-                    breakpoint()
+                tmp_ = tmp_.view(1, tmp_.shape[0])
                 assert child.message_at is not None
                 msg_at_child = torch.repeat_interleave(torch.clone(child.message_at), repeats=tmp_.shape[1], dim=1)
                 edge_tmp = child.parent_edge_potential
