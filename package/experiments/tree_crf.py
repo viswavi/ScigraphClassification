@@ -70,13 +70,11 @@ class TreeCRF(nn.Module):
             for child in node.children:
                 if child not in traversal_list:
                     traversal_list, features = self.build_traversal_and_get_features(child, traversal_list, features)
-            print(f"node idx: {node.idx}")
             if node not in traversal_list:
                 traversal_list.append(node)
                 features[node.idx] = node.features
             return traversal_list, features
         elif len(node.children) == 0 and node not in traversal_list:
-            print(f"node idx: {node.idx}")
             features[node.idx] = node.features
             return traversal_list, features
 
@@ -98,7 +96,6 @@ class TreeCRF(nn.Module):
         traversal_list, features = self.build_traversal_and_get_features(tree, [], {})
         node_idxs = sorted(list(features.keys()))
         node2ix = {n_idx: i for i, n_idx in zip(range(len(node_idxs)), node_idxs)}
-        print(node2ix)
         ix2node = {i:n_idx for n_idx,i in node2ix.items()}
 
         # {999: something, 1000: None}
