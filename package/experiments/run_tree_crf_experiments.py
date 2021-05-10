@@ -18,6 +18,8 @@ NUM_LAYERS = [2]
 HIDDEN_DIMS = [100]
 LEARNING_RATES = [0.03]
 NUM_EPOCHS = 10
+TRAIN_SIZES = [140]
+#TRAIN_SIZES = [140, 380, 570]
 
 
 def generate_reindexed_graph(graph, all_X, train_size, test_size, test_indices):
@@ -79,19 +81,20 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     aggregated_y = torch.cat([y_train, y_test])
     num_train = len(X_train)
     num_test = len(X_test)
+    total_data_size = num_train + num_test
 
     reindexed_graph = generate_reindexed_graph(graph, all_X, num_train, num_test, test_indices)
     undirected_graph = make_graph_undirected(reindexed_graph)
-    all_edges = [v for vv in undirected_graph.values() for v in vv]
+    all_edges = [v for vv in undirected_graph.values() for v in vv]    
 
-
-    train_loader, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, undirected_graph)
-
-
-    for hidden_dim in HIDDEN_DIMS:
-        for lr in LEARNING_RATES:
-            for num_layers in NUM_LAYERS:
-                run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble)
+    for train_size in TRAIN_SIZES:
+        for hidden_dim in HIDDEN_DIMS:
+            for lr in LEARNING_RATES:
+                for num_layers in NUM_LAYERS:
+                    test_size = total_data_size - train_size
+                    print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}")
+                    train_loader, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, undirected_graph)
+                    run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble)
 
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
@@ -162,7 +165,6 @@ def evaluate_model(model, test_loader, ensemble=False):
         norm_beliefs, labels, node_idxs, partition_func = model.belief_propagation(traversal_list)
         preds_dict = model.predict(norm_beliefs, labels, node_idxs)
         neighborhood_sizes.append(len(preds_dict))
-
         if ensemble:
             for node_idx, node_pred in preds_dict.items():
                 all_predictions[node_idx].append(node_pred)
