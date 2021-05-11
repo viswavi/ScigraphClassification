@@ -1,47 +1,33 @@
 from collections import defaultdict
+import json
+import numpy as np
+import time
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
 from package.datasets.graph_loader import load_graph_from_dataset
 
-from package.experiments.utils import to_cls, aggregate_features
+from package.experiments.utils import to_cls, aggregate_features, consolidate_data
 from .tree_crf import TreeCRF, TreeNLLLoss
+from collections import Counter, defaultdict
 
 
 DEVICE = 'cpu'
-NUM_LAYERS = [2]
-HIDDEN_DIMS = [100]
+# ENSEMBLING = [False, True]
+ENSEMBLING = [True]
+NUM_LAYERS = [1, 2, 3]
+HIDDEN_DIMS = [200, 300, 500]
+# LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
+TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
+
 NUM_EPOCHS = 10
+VALIDATION_SAMPLES = 30
 
-
-def generate_reindexed_graph(graph, all_X, train_size, test_size, test_indices):
-    index_remapping = {}
-    for train_idx in range(train_size):
-        index_remapping[train_idx] = train_idx
-    for test_idx in range(test_size):
-        index_remapping[test_indices[test_idx]] = test_idx + train_size
-
-    reindexed_graph = {}
-    for node_idx, neighbor_idxs in graph.items():
-        if node_idx not in index_remapping:
-            # Don't add any nodes that are completely unlabeled (i.e. not in train or test sets)
-            # for now.
-            continue
-        remapped_node_idx  = index_remapping[node_idx]
-        reindexed_graph[remapped_node_idx] = []
-
-        for neighbor_idx in neighbor_idxs:
-            if neighbor_idx not in index_remapping:
-                # Ignore unlabeled data points.
-                # TODO: support training on unlabeled points.
-                continue
-            reindexed_graph[remapped_node_idx].append(index_remapping[neighbor_idx])
-    return reindexed_graph
 
 # CRFs are undirected graphical models, so the underlying citation graph must be made undirected.
 def make_graph_undirected(graph):
@@ -56,9 +42,9 @@ def make_graph_undirected(graph):
         undirected_graph[k] = list(undirected_graph[k])
     return undirected_graph
 
-def run_tree_crf_experiments(train_dataset, test_dataset):
+def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
-    
+
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
     all_X = torch.tensor(all_X.toarray(), device=DEVICE)
     X_train = aggregate_features(X_train, all_X, graph)
@@ -74,41 +60,75 @@ def run_tree_crf_experiments(train_dataset, test_dataset):
     y_test = torch.tensor(to_cls(y_test), device='cpu', dtype=torch.int64)
     _, num_features = X_train.shape
 
-    aggregated_X = torch.cat([X_train, X_test])
-    aggregated_y = torch.cat([y_train, y_test])
-    num_train = len(X_train)
-    num_test = len(X_test)
-
-    reindexed_graph = generate_reindexed_graph(graph, all_X, num_train, num_test, test_indices)
+    aggregated_X, aggregated_y, reindexed_graph = consolidate_data(X_train, y_train, X_test, y_test, test_indices, graph)
     undirected_graph = make_graph_undirected(reindexed_graph)
+
     all_edges = [v for vv in undirected_graph.values() for v in vv]
+    total_data_size = len(X_train) + len(X_test)
+    parameter_scores = {}
+
+    print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")
+    for ensembling in ENSEMBLING:
+        for train_size in TRAIN_SIZES:
+            for hidden_dim in HIDDEN_DIMS:
+                for lr in LEARNING_RATES:
+                    for num_layers in NUM_LAYERS:
+                        test_size = total_data_size - train_size
+                        print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
+                        train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, VALIDATION_SAMPLES, undirected_graph)
+                        validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                        parameter_key = {
+                                            "ensembling": ensembling,
+                                            "train_size": train_size,
+                                            "hidden_dim": hidden_dim,
+                                            "lr"        : lr,
+                                            "num_layers": num_layers
+                                        }
+                        parameter_scores[str(parameter_key)] = validation_accuracy
+
+    print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
+    best_parameter = max(parameter_scores, key=parameter_scores.get)
+    best_parameter = eval(best_parameter)
+    print(f"Best parameter combination: {best_parameter}")
+    # Convert string dictionary back to dictinoary
+
+    final_train_size = best_parameter["train_size"]
+    final_test_size = total_data_size - final_train_size
+
+    # Generate test loader without holding out a validation set, this time.
+    train_loader, _, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, final_train_size, final_test_size, 0, undirected_graph)
+    test_accuracy = run_single_experiment(best_parameter["hidden_dim"],
+                                          best_parameter["lr"],
+                                          best_parameter["num_layers"],
+                                          num_features,
+                                          num_cls,
+                                          train_loader,
+                                          test_loader,
+                                          best_parameter["ensembling"])
+    print(f"Final Test Accuracy (on test set of size {final_test_size}): {test_accuracy}.")
 
 
-    train_loader, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, undirected_graph)
-
-
-    for hidden_dim in HIDDEN_DIMS:
-        for lr in LEARNING_RATES:
-            for num_layers in NUM_LAYERS:
-                run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader)
-
-
-def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader):
+def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
+    start_time = time.perf_counter()
     model = train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls)
-    evaluate_model(model, test_loader)
+    test_accuracy = evaluate_model(model, test_loader, ensemble)
+    end_time = time.perf_counter()
+    print(f"Single model took {round(end_time - start_time)} seconds to train.")
+    return test_accuracy
 
 
-def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=10):
+def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):
     model = TreeCRF(input_dim=num_features, hidden_dim=hidden_dim, num_classes=num_cls, num_layers=num_layers)
     
     model.to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = TreeNLLLoss()
+    criterion = model.criterion
     losses = []
     tree_accs = []
     leaf_accs = []
 
-    for _ in range(NUM_EPOCHS):
+    for _ in tqdm(range(NUM_EPOCHS)):
+        train_loader.reset()
         # step thru batches...
         done = False
         while not done:
@@ -135,18 +155,44 @@ def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls,
     #     print(val_score)
     return model
 
+def vote_pooling(labels):
+    label_count = Counter(labels)
+    [(most_common_label, _)] = label_count.most_common(1)
+    return most_common_label
 
-def evaluate_model(model, test_loader):
+
+def evaluate_model(model, test_loader, ensemble=False):
     done = False
-    root_labels = []
-    root_predictions = []
+    node_labels = []
+    node_predictions = []
+
+    # For voting over all trees with a given node, if ensemble is True.
+    all_predictions = defaultdict(list)
+    test_node_indices = []
+
+    neighborhood_sizes = []
+
     while not done:
         done, tree = test_loader.get_next_batch()
-        root_labels.append(tree.true_label)
+        node_labels.append(tree.true_label)
         root_node_idx = tree.idx
         traversal_list = model(tree)
         norm_beliefs, labels, node_idxs, partition_func = model.belief_propagation(traversal_list)
-        _, _, preds_dict = model.predict(norm_beliefs, labels, node_idxs)
-        root_predictions = preds_dict[root_node_idx]
+        preds_dict = model.predict(norm_beliefs, labels, node_idxs)
+        neighborhood_sizes.append(len(preds_dict))
+        if ensemble:
+            for node_idx, node_pred in preds_dict.items():
+                all_predictions[node_idx].append(node_pred)
+        else:
+            node_predictions.append(preds_dict[root_node_idx])
 
-    print(f"Test accuracy {accuracy_score(y, y_pred)}")
+        test_node_indices.append(root_node_idx)
+    if ensemble:
+        for node_idx in test_node_indices:
+            all_labels = all_predictions[node_idx]
+            top_label = vote_pooling(all_labels)
+            node_predictions.append(top_label)
+    test_accuracy = accuracy_score(node_labels, node_predictions)
+    print(f"Test accuracy {test_accuracy}")
+    print(f"Average neighborhood size in training: {round(np.mean(neighborhood_sizes), 3)}")
+    return test_accuracy
