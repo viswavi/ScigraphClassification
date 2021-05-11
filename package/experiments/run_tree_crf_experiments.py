@@ -23,8 +23,18 @@ NUM_LAYERS = [1, 2, 3]
 HIDDEN_DIMS = [200, 300, 500]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
-TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
+GRAPH_NEIGHBORHOOD_SIZE = 10
+TRAIN_SIZE=600
+
 KEEP_TRAINING_NODES_IN_TEST_GRAPH=False
+
+DEFAULT_PARAMETERS = {
+    "ensembling"       : False,
+    "hidden_dim"       : 200,
+    "lr"               : 0.03,
+    "num_layers"       : 2,
+    "neighborhood_size": 10,
+}
 
 NUM_EPOCHS = 10
 VALIDATION_SAMPLES = 30
@@ -43,7 +53,7 @@ def make_graph_undirected(graph):
         undirected_graph[k] = list(undirected_graph[k])
     return undirected_graph
 
-def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
+def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_parameters=False, skip_parameter_search=False):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
 
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
@@ -68,56 +78,58 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     total_data_size = len(X_train) + len(X_test)
     parameter_scores = {}
 
-    print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")
-    for ensembling in ENSEMBLING:
-        for train_size in TRAIN_SIZES:
-            for hidden_dim in HIDDEN_DIMS:
-                for lr in LEARNING_RATES:
-                    for num_layers in NUM_LAYERS:
-                        test_size = total_data_size - train_size
-                        print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
-                        train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
-                                                                              aggregated_y,
-                                                                              train_size,
-                                                                              test_size,
-                                                                              VALIDATION_SAMPLES,
-                                                                              undirected_graph,
-                                                                              include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH)
-                        validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
-                        parameter_key = {
-                                            "ensembling": ensembling,
-                                            "train_size": train_size,
-                                            "hidden_dim": hidden_dim,
-                                            "lr"        : lr,
-                                            "num_layers": num_layers
-                                        }
-                        parameter_scores[str(parameter_key)] = validation_accuracy
+    test_size = total_data_size - TRAIN_SIZE
 
-    print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
-    best_parameter = max(parameter_scores, key=parameter_scores.get)
-    best_parameter = eval(best_parameter)
-    print(f"Best parameter combination: {best_parameter}")
+    if skip_parameter_search:
+        best_parameters = DEFAULT_PARAMETERS
+    else:
+        print(f"Running grid search over ensembling, train sizes, hidden dimensions, and learning rates")
+        for ensembling in ENSEMBLING:
+                for hidden_dim in HIDDEN_DIMS:
+                    for lr in LEARNING_RATES:
+                        for num_layers in NUM_LAYERS:
+                            print(f"\nhidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
+                            train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
+                                                                                aggregated_y,
+                                                                                TRAIN_SIZE,
+                                                                                test_size,
+                                                                                VALIDATION_SAMPLES,
+                                                                                undirected_graph,
+                                                                                include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
+                                                                                max_neighborhood_size=GRAPH_NEIGHBORHOOD_SIZE)
+                            validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                            parameter_key = {
+                                                "ensembling": ensembling,
+                                                "hidden_dim": hidden_dim,
+                                                "lr"        : lr,
+                                                "num_layers": num_layers
+                                            }
+                            parameter_scores[str(parameter_key)] = validation_accuracy
+
+        print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
+        best_parameters = max(parameter_scores, key=parameter_scores.get)
+        best_parameters = eval(best_parameters)
+        print(f"Best parameter combination: {best_parameters}")
     # Convert string dictionary back to dictinoary
-
-    final_train_size = best_parameter["train_size"]
-    final_test_size = total_data_size - final_train_size
 
     # Generate test loader without holding out a validation set, this time.
     train_loader, _, test_loader = load_graph_from_dataset(aggregated_X,
                                                            aggregated_y,
-                                                           final_train_size,
-                                                           final_test_size,
+                                                           TRAIN_SIZE,
+                                                           test_size,
                                                            0,
                                                            undirected_graph,
-                                                           include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH)
-    test_accuracy = run_single_experiment(best_parameter["hidden_dim"],
-                                          best_parameter["lr"],
-                                          best_parameter["num_layers"],
+                                                           include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
+                                                           max_neighborhood_size=best_parameters["neighborhood_size"])
+
+    test_accuracy = run_single_experiment(best_parameters["hidden_dim"],
+                                          best_parameters["lr"],
+                                          best_parameters["num_layers"],
                                           num_features,
                                           num_cls,
                                           train_loader,
                                           test_loader,
-                                          best_parameter["ensembling"])
+                                          best_parameters["ensembling"])
     print(f"Final Test Accuracy (on test set of size {final_test_size}): {test_accuracy}.")
 
 

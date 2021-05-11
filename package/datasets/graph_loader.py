@@ -92,7 +92,7 @@ def aggregate_nodes_from_tree(tree):
             accumulator.extend(aggregate_nodes_from_tree(child))
     return accumulator
 
-def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num_validation, undirected_graph, device='cpu', include_training_set=False):
+def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num_validation, undirected_graph, max_neighborhood_size=10, device='cpu', include_training_set=False):
     train_node_ids = list(range(num_train))
     test_node_ids = [i + num_train for i in range(num_test)]
 
@@ -110,8 +110,20 @@ def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num
                 break
         validation_node_ids = validation_node_ids[:num_validation]
         train_node_ids = list(set(train_node_ids) - set(validation_node_ids))
-        val_loader = GraphLoader(aggregated_X, aggregated_y, validation_node_ids, undirected_graph, include_training_set=include_training_set, training_nodes = train_node_ids)
+        val_loader = GraphLoader(aggregated_X,
+                                 aggregated_y,
+                                 validation_node_ids,
+                                 undirected_graph,
+                                 include_training_set=include_training_set,
+                                 training_nodes=train_node_ids,
+                                 max_neighborhood_size=max_neighborhood_size)
 
-    train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph)
-    test_loader = GraphLoader(aggregated_X, aggregated_y, test_node_ids, undirected_graph, include_training_set=include_training_set, training_nodes = train_node_ids)
+    train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, max_neighborhood_size=max_neighborhood_size)
+    test_loader = GraphLoader(aggregated_X,
+                              aggregated_y,
+                              test_node_ids,
+                              undirected_graph,
+                              include_training_set=include_training_set,
+                              training_nodes=train_node_ids,
+                              max_neighborhood_size=max_neighborhood_size)
     return train_loader, val_loader, test_loader
