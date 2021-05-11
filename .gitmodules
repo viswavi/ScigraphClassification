@@ -1,6 +1,0 @@
-[submodule "planetoid"]
-	path = planetoid
-	url = https://github.com/kimiyoung/planetoid.git
-[submodule "SGC"]
-	path = SGC
-	url = https://github.com/Tiiiger/SGC.git
