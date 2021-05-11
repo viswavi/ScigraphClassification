@@ -1,6 +1,7 @@
 from collections import defaultdict
 import json
 import numpy as np
+import random
 import time
 from tqdm import tqdm
 import torch
@@ -146,6 +147,16 @@ def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, tra
     end_time = time.perf_counter()
     print(f"Single model took {round(end_time - start_time)} seconds to train.")
     return test_accuracy
+
+def set_seed(seed):
+    # set seed for all possible avenues of stochasticity
+    np.random.seed(seed=seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 
 def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):
