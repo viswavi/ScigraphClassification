@@ -9,9 +9,9 @@ import torch.optim as optim
 
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import classification_report
-from package.datasets.graph_loader import load_graph_from_dataset
+from datasets.graph_loader import load_graph_from_dataset
 
-from package.experiments.utils import to_cls, aggregate_features, consolidate_data
+from experiments.utils import to_cls, aggregate_features, consolidate_data
 from .tree_crf import TreeCRF, TreeNLLLoss
 from collections import Counter, defaultdict
 

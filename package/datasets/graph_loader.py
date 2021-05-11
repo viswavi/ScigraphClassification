@@ -1,4 +1,4 @@
-from package.datasets.dataset import Dataset
+from datasets.dataset import Dataset
 
 class Node():
     def __init__(self, idx, features, true_label, parent=None, children=[], label_observed=False):
