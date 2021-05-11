@@ -1,8 +1,6 @@
 [submodule "SGC"]
 	path = SGC
 	url = https://github.com/ostapen/SGC.git
-
-
 [submodule "planetoid"]
 	path = planetoid
-	url = https://github.com/kimiyoung/planetoid.git
+	url = https://github.com/viswavi/planetoid.git
