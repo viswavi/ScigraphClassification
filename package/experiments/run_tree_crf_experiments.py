@@ -57,7 +57,19 @@ def make_graph_undirected(graph):
         undirected_graph[k] = list(undirected_graph[k])
     return undirected_graph
 
-def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_parameters=False, skip_parameter_search=False):
+def set_seed(seed):
+    # set seed for all possible avenues of stochasticity
+    np.random.seed(seed=seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_parameters=False, skip_parameter_search=False, seed=0):
+    set_seed(seed)
+
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
     all_X = torch.tensor(all_X.toarray(), device=DEVICE)
@@ -147,16 +159,6 @@ def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, tra
     end_time = time.perf_counter()
     print(f"Single model took {round(end_time - start_time)} seconds to train.")
     return test_accuracy
-
-def set_seed(seed):
-    # set seed for all possible avenues of stochasticity
-    np.random.seed(seed=seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
 
 
 def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):

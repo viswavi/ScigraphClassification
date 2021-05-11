@@ -19,7 +19,6 @@ from experiments.run_tree_crf_experiments import run_tree_crf_experiments
 def main(data_directory, dataset_name, dataset_style, model, seed, skip_parameter_search, ensemble, validate):
     if seed is None:
         seed = DEFAULT_SEED
-    breakpoint()
     train_dataset = Dataset(data_directory, dataset_name, dataset_style, train=True)
     test_dataset = Dataset(data_directory, dataset_name, dataset_style, train=False)
     if model == 'brf':
