@@ -31,11 +31,12 @@ TRAIN_SIZE=600
 KEEP_TRAINING_NODES_IN_TEST_GRAPH=False
 
 DEFAULT_PARAMETERS = {
-    "ensembling"       : False,
-    "hidden_dim"       : 200,
-    "lr"               : 0.03,
-    "num_layers"       : 2,
-    "neighborhood_size": 100,
+    "ensembling"         : False,
+    "hidden_dim"         : 200,
+    "lr"                 : 0.03,
+    "num_layers"         : 2,
+    "neighborhood_size"  : 100,
+    "training_visibility": True,
 }
 
 NUM_EPOCHS = 10
