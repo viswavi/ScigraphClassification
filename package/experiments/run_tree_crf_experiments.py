@@ -18,13 +18,13 @@ from collections import Counter, defaultdict
 
 DEVICE = 'cpu'
 # ENSEMBLING = [False, True]
-ENSEMBLING = [False]
-NUM_LAYERS = [2]
-HIDDEN_DIMS = [200]
+ENSEMBLING = [True]
+NUM_LAYERS = [1, 2, 3]
+HIDDEN_DIMS = [200, 300, 500]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
-TRAIN_SIZES = [600] # This includes the set of validation samples.
-KEEP_TRAINING_NODES_IN_TEST_GRAPH=True
+TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
+KEEP_TRAINING_NODES_IN_TEST_GRAPH=False
 
 NUM_EPOCHS = 10
 VALIDATION_SAMPLES = 30
