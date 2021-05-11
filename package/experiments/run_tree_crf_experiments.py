@@ -18,9 +18,10 @@ from collections import Counter, defaultdict
 
 DEVICE = 'cpu'
 # ENSEMBLING = [False, True]
-ENSEMBLING = [True]
+ENSEMBLING = [False]
 NUM_LAYERS = [1, 2, 3]
 HIDDEN_DIMS = [200, 300, 500]
+ALL_GRAPH_NEIGHBORHOOD_SIZES = [5, 10, 20, 100]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
 GRAPH_NEIGHBORHOOD_SIZE = 10
@@ -55,7 +56,6 @@ def make_graph_undirected(graph):
 
 def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_parameters=False, skip_parameter_search=False):
     X_train, y_train, all_X, graph = train_dataset.x, train_dataset.y, train_dataset.all_x, train_dataset.graph
-
     X_train = torch.tensor(X_train.toarray(), device=DEVICE)
     all_X = torch.tensor(all_X.toarray(), device=DEVICE)
     X_train = aggregate_features(X_train, all_X, graph)
@@ -88,23 +88,25 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_param
                 for hidden_dim in HIDDEN_DIMS:
                     for lr in LEARNING_RATES:
                         for num_layers in NUM_LAYERS:
-                            print(f"\nhidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
-                            train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
-                                                                                aggregated_y,
-                                                                                TRAIN_SIZE,
-                                                                                test_size,
-                                                                                VALIDATION_SAMPLES,
-                                                                                undirected_graph,
-                                                                                include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
-                                                                                max_neighborhood_size=GRAPH_NEIGHBORHOOD_SIZE)
-                            validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
-                            parameter_key = {
-                                                "ensembling": ensembling,
-                                                "hidden_dim": hidden_dim,
-                                                "lr"        : lr,
-                                                "num_layers": num_layers
-                                            }
-                            parameter_scores[str(parameter_key)] = validation_accuracy
+                            for neighborhood_size in ALL_GRAPH_NEIGHBORHOOD_SIZES:
+                                print(f"\nhidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}, neighborhood_size: {neighborhood_size}")
+                                train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
+                                                                                    aggregated_y,
+                                                                                    TRAIN_SIZE,
+                                                                                    test_size,
+                                                                                    VALIDATION_SAMPLES,
+                                                                                    undirected_graph,
+                                                                                    include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
+                                                                                    max_neighborhood_size=neighborhood_size)
+                                validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                                parameter_key = {
+                                                    "ensembling": ensembling,
+                                                    "hidden_dim": hidden_dim,
+                                                    "lr"        : lr,
+                                                    "num_layers": num_layers,
+                                                    "neighborhood_size": neighborhood_size,
+                                                }
+                                parameter_scores[str(parameter_key)] = validation_accuracy
 
         print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
         best_parameters = max(parameter_scores, key=parameter_scores.get)
@@ -130,7 +132,7 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_param
                                           train_loader,
                                           test_loader,
                                           best_parameters["ensembling"])
-    print(f"Final Test Accuracy (on test set of size {final_test_size}): {test_accuracy}.")
+    print(f"Final Test Accuracy (on test set of size {test_size}): {test_accuracy}.")
 
 
 def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, test_loader, ensemble):
