@@ -18,24 +18,25 @@ from collections import Counter, defaultdict
 
 DEVICE = 'cpu'
 # ENSEMBLING = [False, True]
-ENSEMBLING = [False]
-NUM_LAYERS = [1, 2, 3]
-HIDDEN_DIMS = [200, 300, 500]
-ALL_GRAPH_NEIGHBORHOOD_SIZES = [20]
-# ALL_GRAPH_NEIGHBORHOOD_SIZES = [5, 10, 20, 100]
+ENSEMBLING = [True, False]
+NUM_LAYERS = [2]
+HIDDEN_DIMS = [200]
+ALL_GRAPH_NEIGHBORHOOD_SIZES = [5, 10, 20, 100]
+ALL_TRAIN_VISIBILITY = [True, False]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
-GRAPH_NEIGHBORHOOD_SIZE = 10
+GRAPH_NEIGHBORHOOD_SIZE = 100
 TRAIN_SIZE=600
 
 KEEP_TRAINING_NODES_IN_TEST_GRAPH=False
 
 DEFAULT_PARAMETERS = {
-    "ensembling"       : False,
-    "hidden_dim"       : 200,
-    "lr"               : 0.03,
-    "num_layers"       : 2,
-    "neighborhood_size": 10,
+    "ensembling"         : False,
+    "hidden_dim"         : 200,
+    "lr"                 : 0.03,
+    "num_layers"         : 2,
+    "neighborhood_size"  : 100,
+    "training_visibility": True,
 }
 
 NUM_EPOCHS = 10
@@ -90,24 +91,26 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_param
                     for lr in LEARNING_RATES:
                         for num_layers in NUM_LAYERS:
                             for neighborhood_size in ALL_GRAPH_NEIGHBORHOOD_SIZES:
-                                print(f"\nhidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}, neighborhood_size: {neighborhood_size}")
-                                train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
-                                                                                    aggregated_y,
-                                                                                    TRAIN_SIZE,
-                                                                                    test_size,
-                                                                                    VALIDATION_SAMPLES,
-                                                                                    undirected_graph,
-                                                                                    include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
-                                                                                    max_neighborhood_size=neighborhood_size)
-                                validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
-                                parameter_key = {
-                                                    "ensembling": ensembling,
-                                                    "hidden_dim": hidden_dim,
-                                                    "lr"        : lr,
-                                                    "num_layers": num_layers,
-                                                    "neighborhood_size": neighborhood_size,
-                                                }
-                                parameter_scores[str(parameter_key)] = validation_accuracy
+                                for training_visibility in ALL_TRAIN_VISIBILITY:
+                                    print(f"\nhidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}, neighborhood_size: {neighborhood_size}")
+                                    train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
+                                                                                        aggregated_y,
+                                                                                        TRAIN_SIZE,
+                                                                                        test_size,
+                                                                                        VALIDATION_SAMPLES,
+                                                                                        undirected_graph,
+                                                                                        include_training_set=training_visibility,
+                                                                                        max_neighborhood_size=neighborhood_size)
+                                    validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
+                                    parameter_key = {
+                                                        "ensembling": ensembling,
+                                                        "hidden_dim": hidden_dim,
+                                                        "lr"        : lr,
+                                                        "num_layers": num_layers,
+                                                        "training_visibility": training_visibility,
+                                                        "neighborhood_size": neighborhood_size,
+                                                    }
+                                    parameter_scores[str(parameter_key)] = validation_accuracy
 
         print(f"Parameter evaluations:\n{json.dumps(parameter_scores, indent=4)}")
         best_parameters = max(parameter_scores, key=parameter_scores.get)
@@ -122,7 +125,7 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble, search_param
                                                            test_size,
                                                            0,
                                                            undirected_graph,
-                                                           include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH,
+                                                           include_training_set=best_parameters["training_visibility"],
                                                            max_neighborhood_size=best_parameters["neighborhood_size"])
 
     test_accuracy = run_single_experiment(best_parameters["hidden_dim"],
