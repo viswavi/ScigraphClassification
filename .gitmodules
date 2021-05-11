@@ -1,0 +1,3 @@
+[submodule "SGC"]
+	path = SGC
+	url = https://github.com/ostapen/SGC.git
