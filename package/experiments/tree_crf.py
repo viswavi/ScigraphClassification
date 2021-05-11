@@ -4,6 +4,7 @@ import torch.nn as nn
 from .mlp import MLP, make_multi_layer_perceptron
 
 
+ALMOST_ZERO_LOG_SCALE = -999999
 
 def unary_potential_product(unary_potentials):
     # Product is in log-space.
@@ -53,7 +54,7 @@ class TreeNLLLoss(nn.Module):
 
 class TreeCRF(nn.Module):
 
-    def __init__(self, input_dim, hidden_dim, num_classes, num_layers = 2):
+    def __init__(self, input_dim, hidden_dim, num_classes, num_layers = 2, device='cpu'):
         super(TreeCRF,self).__init__()
 
         self.build_unary_potentials = nn.Linear(hidden_dim, num_classes)
@@ -64,6 +65,7 @@ class TreeCRF(nn.Module):
         self.hidden_dim = hidden_dim
         self.input_dim = input_dim
         self.mlp = make_multi_layer_perceptron(in_dim=input_dim, out_dim=None, hidden_dim=hidden_dim, num_layers=num_layers, feature_extractor=True)
+        self.device = device
 
     def build_traversal_and_get_features(self, node, traversal_list = [], features = {}):
         if len(node.children) > 0 and node not in traversal_list:
@@ -113,7 +115,14 @@ class TreeCRF(nn.Module):
             children = node.children
             hidden = hiddens[node2ix[node.idx]]
             node.hidden = torch.clone(hidden)
-            unary_pot = torch.clone(self.build_unary_potentials(node.hidden))
+            if node.label_observed:
+                # Set unary potentials to all be almost 0 (converted to log scale).
+                unary_pot = torch.zeros(self.num_classes, device=self.device)
+                unary_pot = unary_pot + ALMOST_ZERO_LOG_SCALE
+                # But set the potential of the true label to 1 (converted to log scale).
+                unary_pot[node.true_label] = 0
+            else:
+                unary_pot = torch.clone(self.build_unary_potentials(node.hidden))
             node.unary_potential = unary_pot.view(1, -1)
             
             for child in children:
@@ -132,6 +141,26 @@ class TreeCRF(nn.Module):
 
                 #edge_pot = torch.clone(self.build_edge_potentials(torch.cat([parent_features, child_features, shared_neighbor_features], dim=1)))
                 edge_pot = torch.clone(self.build_edge_potentials(torch.cat([hidden, child.hidden], dim=0)))
+                edge_pot = edge_pot.view(self.num_classes, self.num_classes)
+
+                if child.label_observed and node.label_observed:
+                    # Set edge potentials to all be almost 0 (converted to log scale).
+                    edge_pot = torch.zeros((self.num_classes, self.num_classes), device=self.device)
+                    edge_pot = edge_pot + ALMOST_ZERO_LOG_SCALE
+                    # But set the potential of the true label pair to 1 (converted to log scale).
+                    edge_pot[node.true_label][child.true_label] = 0.0
+                elif child.label_observed and not node.label_observed:
+                    row_to_keep = torch.clone(edge_pot[child.label_observed, :])
+                    edge_pot = edge_pot + ALMOST_ZERO_LOG_SCALE
+                    edge_pot[child.label_observed, :] = row_to_keep
+                elif not child.label_observed and node.label_observed:
+                    column_to_keep = torch.clone(edge_pot[:, node.label_observed])
+                    edge_pot = edge_pot + ALMOST_ZERO_LOG_SCALE
+                    edge_pot[:, node.label_observed, :] = column_to_keep
+                elif not child.label_observed and not node.label_observed:
+                    # Use the edge potential directly from build_edge_potentials
+                    pass
+
                 child.parent_edge_potential = edge_pot.view(1, self.num_classes*self.num_classes)
         return traversal_list 
 

@@ -18,12 +18,13 @@ from collections import Counter, defaultdict
 
 DEVICE = 'cpu'
 # ENSEMBLING = [False, True]
-ENSEMBLING = [True]
-NUM_LAYERS = [1, 2, 3]
-HIDDEN_DIMS = [200, 300, 500]
+ENSEMBLING = [False]
+NUM_LAYERS = [2]
+HIDDEN_DIMS = [200]
 # LEARNING_RATES = [0.03, 0.05, 0.1]
 LEARNING_RATES = [0.03]
-TRAIN_SIZES = [170, 400, 600] # This includes the set of validation samples.
+TRAIN_SIZES = [600] # This includes the set of validation samples.
+KEEP_TRAINING_NODES_IN_TEST_GRAPH=True
 
 NUM_EPOCHS = 10
 VALIDATION_SAMPLES = 30
@@ -75,7 +76,13 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
                     for num_layers in NUM_LAYERS:
                         test_size = total_data_size - train_size
                         print(f"\ntrain_size: {train_size}, hidden_dim: {hidden_dim}, lr: {lr}, num_layers: {num_layers}, ensembling: {ensembling}")
-                        train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X, aggregated_y, train_size, test_size, VALIDATION_SAMPLES, undirected_graph)
+                        train_loader, val_loader, _ = load_graph_from_dataset(aggregated_X,
+                                                                              aggregated_y,
+                                                                              train_size,
+                                                                              test_size,
+                                                                              VALIDATION_SAMPLES,
+                                                                              undirected_graph,
+                                                                              include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH)
                         validation_accuracy = run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, train_loader, val_loader, ensembling)
                         parameter_key = {
                                             "ensembling": ensembling,
@@ -96,7 +103,13 @@ def run_tree_crf_experiments(train_dataset, test_dataset, ensemble):
     final_test_size = total_data_size - final_train_size
 
     # Generate test loader without holding out a validation set, this time.
-    train_loader, _, test_loader = load_graph_from_dataset(aggregated_X, aggregated_y, final_train_size, final_test_size, 0, undirected_graph)
+    train_loader, _, test_loader = load_graph_from_dataset(aggregated_X,
+                                                           aggregated_y,
+                                                           final_train_size,
+                                                           final_test_size,
+                                                           0,
+                                                           undirected_graph,
+                                                           include_training_set=KEEP_TRAINING_NODES_IN_TEST_GRAPH)
     test_accuracy = run_single_experiment(best_parameter["hidden_dim"],
                                           best_parameter["lr"],
                                           best_parameter["num_layers"],
@@ -118,7 +131,7 @@ def run_single_experiment(hidden_dim, lr, num_layers, num_features, num_cls, tra
 
 
 def train_model(train_loader, hidden_dim, lr, num_layers, num_features, num_cls, loss_interval=40):
-    model = TreeCRF(input_dim=num_features, hidden_dim=hidden_dim, num_classes=num_cls, num_layers=num_layers)
+    model = TreeCRF(input_dim=num_features, hidden_dim=hidden_dim, num_classes=num_cls, num_layers=num_layers, device=DEVICE)
     
     model.to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)

@@ -65,7 +65,7 @@ def construct_graph_neighborhoods(aggregated_X, aggregated_y, candidate_nodes, u
 
 
 class GraphLoader():
-    def __init__(self, aggregated_X, aggregated_y, candidate_nodes, undirected_graph, max_neighborhood_size=10, include_training_set=True, training_nodes=None):
+    def __init__(self, aggregated_X, aggregated_y, candidate_nodes, undirected_graph, max_neighborhood_size=10, include_training_set=False, training_nodes=None):
         self.trees = construct_graph_neighborhoods(aggregated_X, aggregated_y, candidate_nodes, undirected_graph,\
             max_neighborhood_size=max_neighborhood_size, include_training_set=include_training_set, training_nodes=training_nodes)
 
@@ -100,7 +100,7 @@ def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num
     if num_validation == 0:
         val_loader = None
     else:
-        train_val_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, include_training_set=include_training_set)
+        train_val_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph)
         validation_node_ids = []
         for t in train_val_loader.trees:
             for node_idx in aggregate_nodes_from_tree(t):
@@ -112,6 +112,6 @@ def load_graph_from_dataset(aggregated_X, aggregated_y, num_train, num_test, num
         train_node_ids = list(set(train_node_ids) - set(validation_node_ids))
         val_loader = GraphLoader(aggregated_X, aggregated_y, validation_node_ids, undirected_graph, include_training_set=include_training_set, training_nodes = train_node_ids)
 
-    train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph, include_training_set=False)
+    train_loader = GraphLoader(aggregated_X, aggregated_y, train_node_ids, undirected_graph)
     test_loader = GraphLoader(aggregated_X, aggregated_y, test_node_ids, undirected_graph, include_training_set=include_training_set, training_nodes = train_node_ids)
     return train_loader, val_loader, test_loader
